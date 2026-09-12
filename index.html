@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Barcode Scanner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0b0f19; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid #1f2937;
+  }
+  .header h1 { font-size: 16px; font-weight: 700; margin: 0; }
+  .close-btn {
+    background: #1f2937; color: #fff; border: none; border-radius: 8px;
+    width: 34px; height: 34px; font-size: 18px; cursor: pointer;
+  }
+  #reader { width: 100%; min-height: 320px; background: #000; }
+  .status {
+    text-align: center; padding: 16px; font-size: 13px; color: #9ca3af;
+    line-height: 1.5;
+  }
+  .status.error { color: #f87171; }
+  .status.success { color: #34d399; font-weight: 700; }
+  .manual {
+    padding: 0 16px 20px; display: flex; gap: 8px;
+  }
+  .manual input {
+    flex: 1; padding: 12px; border-radius: 10px; border: 1px solid #374151;
+    background: #111827; color: #fff; font-size: 15px;
+  }
+  .manual button {
+    padding: 12px 16px; border-radius: 10px; border: none;
+    background: #059669; color: #fff; font-weight: 700; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>📷 Scan Barcode</h1>
+    <button class="close-btn" onclick="finishAndClose()">✕</button>
+  </div>
+
+  <div id="reader"></div>
+
+  <p id="status" class="status">Starting camera…</p>
+
+  <div class="manual">
+    <input type="text" id="manual-code" placeholder="Or type code manually" inputmode="numeric">
+    <button onclick="submitManual()">Use</button>
+  </div>
+
+<script>
+let html5QrCode = null;
+let sent = false;
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function sendCodeToOpener(code) {
+  if (sent) return;
+  sent = true;
+  const trimmed = (code || '').trim();
+  if (!trimmed) { sent = false; return; }
+
+  if (window.opener && !window.opener.closed) {
+    window.opener.postMessage({ type: 'barcode-scanned', code: trimmed }, '*');
+    setStatus('Code sent: ' + trimmed, 'success');
+    stopCamera();
+    setTimeout(() => { try { window.close(); } catch (e) {} }, 400);
+  } else {
+    // Not opened as a popup (e.g. user opened the link directly) - just show the result.
+    setStatus('Scanned: ' + trimmed + '  (open this page via the app\'s Camera button so it can send the code back automatically)', 'success');
+    sent = false;
+  }
+}
+
+function stopCamera() {
+  if (html5QrCode) {
+    html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
+  }
+}
+
+function finishAndClose() {
+  stopCamera();
+  try { window.close(); } catch (e) {}
+}
+
+function submitManual() {
+  const val = document.getElementById('manual-code').value;
+  sendCodeToOpener(val);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  if (typeof Html5Qrcode === 'undefined') {
+    setStatus('Scanner library failed to load - check your internet connection.', 'error');
+    return;
+  }
+
+  html5QrCode = new Html5Qrcode("reader", {
+    formatsToSupport: [
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E,
+      Html5QrcodeSupportedFormats.CODE_128,
+      Html5QrcodeSupportedFormats.CODE_39,
+      Html5QrcodeSupportedFormats.ITF,
+      Html5QrcodeSupportedFormats.QR_CODE
+    ],
+    verbose: false
+  });
+
+  const config = { fps: 10, qrbox: { width: 260, height: 150 } };
+
+  html5QrCode.start(
+    { facingMode: "environment" },
+    config,
+    (decodedText) => {
+      setStatus('Detected: ' + decodedText, 'success');
+      sendCodeToOpener(decodedText);
+    },
+    () => { /* per-frame miss, expected while searching */ }
+  ).then(() => {
+    setStatus('Point the camera at a barcode or QR code.');
+  }).catch((err) => {
+    setStatus('Could not access camera: ' + err, 'error');
+  });
+});
+</script>
+</body>
+</html>
