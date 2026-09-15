@@ -23,15 +23,6 @@
   }
   #reader-wrapper { position: relative; width: 100%; }
   #reader { width: 100%; min-height: 320px; background: #000; }
-  #scan-guide {
-    position: absolute; inset: 0; pointer-events: none;
-  }
-  #scan-guide .h-line, #scan-guide .v-line {
-    position: absolute; background: rgba(239, 68, 68, 0.85);
-    box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
-  }
-  #scan-guide .h-line { top: 50%; left: 8%; right: 8%; height: 2px; transform: translateY(-50%); }
-  #scan-guide .v-line { left: 50%; top: 18%; bottom: 18%; width: 2px; transform: translateX(-50%); }
   .status {
     text-align: center; padding: 16px; font-size: 13px; color: #9ca3af;
     line-height: 1.5;
@@ -60,10 +51,6 @@
 
   <div id="reader-wrapper">
     <div id="reader"></div>
-    <div id="scan-guide">
-      <div class="h-line"></div>
-      <div class="v-line"></div>
-    </div>
   </div>
 
   <p id="status" class="status">Starting camera…</p>
@@ -137,7 +124,22 @@ window.addEventListener('DOMContentLoaded', () => {
     verbose: false
   });
 
-  const config = { fps: 10, qrbox: { width: 260, height: 150 } };
+  const config = {
+    fps: 10,
+    // Larger, wide scan box: easier to line up a barcode whether it's
+    // close to the lens (fills less of the box) or far away (fills more).
+    qrbox: (viewfinderWidth, viewfinderHeight) => {
+      const width = Math.floor(viewfinderWidth * 0.85);
+      const height = Math.floor(Math.min(viewfinderHeight * 0.45, width * 0.55));
+      return { width, height };
+    },
+    // Ask the browser/camera for continuous autofocus so it keeps
+    // refocusing as the barcode moves closer or farther away.
+    videoConstraints: {
+      facingMode: "environment",
+      advanced: [{ focusMode: "continuous" }]
+    }
+  };
 
   html5QrCode.start(
     { facingMode: "environment" },
@@ -149,10 +151,43 @@ window.addEventListener('DOMContentLoaded', () => {
     () => { /* per-frame miss, expected while searching */ }
   ).then(() => {
     setStatus('Point the camera at a barcode or QR code.');
+    applyContinuousFocus();
   }).catch((err) => {
     setStatus('Could not access camera: ' + err, 'error');
   });
 });
+
+// Some browsers ignore focusMode passed at getUserMedia time but accept it
+// via applyConstraints() on the live track. Try that too, and retry a
+// couple of times since the track can take a moment to be ready.
+function applyContinuousFocus(attempt) {
+  attempt = attempt || 0;
+  if (!html5QrCode) return;
+  try {
+    const videoEl = document.querySelector('#reader video');
+    const stream = videoEl && videoEl.srcObject;
+    const track = stream && stream.getVideoTracks && stream.getVideoTracks()[0];
+    if (!track) {
+      if (attempt < 5) setTimeout(() => applyContinuousFocus(attempt + 1), 300);
+      return;
+    }
+    const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+    const constraints = { advanced: [{}] };
+    if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+      constraints.advanced[0].focusMode = 'continuous';
+    }
+    if (capabilities.focusDistance) {
+      // Leave focusDistance alone when continuous focus is supported;
+      // only relevant as a fallback on devices without continuous mode.
+    }
+    if (Object.keys(constraints.advanced[0]).length > 0) {
+      track.applyConstraints(constraints).catch(() => {});
+    }
+  } catch (e) {
+    // Continuous focus isn't supported on this device/browser - the
+    // camera's default autofocus behavior will still apply.
+  }
+}
 </script>
 </body>
 </html>
